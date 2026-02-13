@@ -50,7 +50,6 @@ const US_STATES = [
 
 export default class AccountDetailLWC extends NavigationMixin(LightningElement) {
     @api recordId;
-
     @track account;
     @track primaryInsured;
     @track secondaryInsured;
