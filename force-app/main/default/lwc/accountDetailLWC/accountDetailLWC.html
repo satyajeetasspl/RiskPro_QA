@@ -1,0 +1,463 @@
+<template>
+    <template if:true={account}>
+        <div class="slds-grid slds-wrap slds-gutters slds-grid_vertical-stretch" style="margin-bottom: 1.5rem;">
+            <div class="slds-col slds-size_1-of-2">
+                <lightning-card 
+    class="custom-card fixed-size-section"
+    title="Insured Details"
+    icon-name="standard:contact">
+                    <div slot="actions">
+                        <template if:false={isEditingAbout}>
+                            <lightning-button label="Edit" onclick={handleEditAbout} variant="brand"></lightning-button>
+                        </template>
+                        <template if:true={isEditingAbout}>
+                            <lightning-button label="Cancel" onclick={handleCancelAbout} class="slds-m-right_x-small"></lightning-button>
+                            <lightning-button label="Save" variant="brand" onclick={handleSaveAbout}></lightning-button>
+                        </template>
+                    </div>
+                    <template if:false={isEditingAbout}>
+                        <div class="slds-grid slds-gutters about-card-content" style="height: 100%;">
+                            <div class="slds-col slds-size_1-of-2">
+                                <div class="slds-box section-box">
+                                    <h3 class="slds-text-title_bold">Named Insured</h3>
+                                    <template if:true={primaryInsured}>
+                                        <p><strong>Name:</strong> {primaryInsured.FirstName} {primaryInsured.LastName}</p>
+                                        <p><strong>Address:</strong> {insuredAddress}</p>
+                                        <p><strong>Phone:</strong><lightning-click-to-dial value={primaryInsured.Phone} record-id={recordId} data-navigation="enable"></lightning-click-to-dial>
+                                        </p>
+                                        <p><strong>Phone 2:</strong>
+                                        <lightning-click-to-dial value={primaryInsured.MobilePhone} record-id={recordId} data-navigation="enable"></lightning-click-to-dial>
+                                        </p>
+                                        <p><strong>Email:</strong> 
+                                            <a href="javascript:void(0);" onclick={handleEmailClick} data-email={primaryInsured.Email}>
+                                                {primaryInsured.Email}
+                                            </a>
+                                        </p>
+                                        <p><strong>DOB:</strong> {primaryInsuredDOB}</p>
+                                        <div class="slds-m-top_xx-small">
+                                        <lightning-icon icon-name="utility:user" size="xx-small" class="slds-m-right_xxx-small"></lightning-icon>
+                                        <a href="javascript:void(0);" 
+                                        onclick={handleNavigateToContact} 
+                                        data-id={primaryInsured.Id}
+                                        class="view-record-link">
+                                        View Contact Record
+                                        </a>
+                                    </div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <div class="slds-col slds-size_1-of-2">
+                                <div class="slds-box section-box">
+                                    <h3 class="slds-text-title_bold">Second Named Insured</h3>
+                                    <template if:true={secondaryInsured}>
+                                        <p><strong>Name:</strong> {secondaryInsured.FirstName} {secondaryInsured.LastName}</p>
+                                        <p><strong>Address:</strong> {propertyAddress}</p>
+                                        <p><strong>Phone:</strong><lightning-click-to-dial value={secondaryInsured.Phone} record-id={secondaryInsured.Id} data-navigation="enable"></lightning-click-to-dial></p>
+                                        <p><strong>Phone 2:</strong><lightning-click-to-dial value={secondaryInsured.MobilePhone} record-id={secondaryInsured.Id} data-navigation="enable"></lightning-click-to-dial></p>
+                                        <p><strong>Email:</strong> 
+                                            <a href="javascript:void(0);" onclick={handleEmailClick} data-email={secondaryInsured.Email}>
+                                                {secondaryInsured.Email}
+                                            </a>
+                                        </p>
+                                        <p><strong>DOB:</strong> {secondaryInsuredDOB}</p>   
+                                        <div class="slds-m-top_xx-small">
+                                        <lightning-icon icon-name="utility:user" size="xx-small" class="slds-m-right_xxx-small"></lightning-icon>
+                                        <a href="javascript:void(0);" 
+                                        onclick={handleNavigateToContact} 
+                                        data-id={secondaryInsured.Id}
+                                        class="view-record-link">
+                                        View Contact Record
+                                        </a>
+                                    </div>                                    
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <template if:true={isEditingAbout}>
+                        <div class="slds-p-around_medium scroll-section">
+                            <h3 class="slds-text-heading_small slds-m-bottom_small">Named Insured</h3>
+                            <lightning-input label="First Name" value={editedPrimaryInsured.FirstName} data-record="primary" data-field="FirstName" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Last Name" value={editedPrimaryInsured.LastName} data-record="primary" data-field="LastName" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Phone" type="tel" value={editedPrimaryInsured.Phone} data-record="primary" data-field="Phone" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Phone 2" type="tel" value={editedPrimaryInsured.MobilePhone} data-record="primary" data-field="MobilePhone" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Email" type="email" value={editedPrimaryInsured.Email} data-record="primary" data-field="Email" onchange={handleAboutChange}></lightning-input>
+                            <h3 class="slds-text-heading_small slds-m-top_medium slds-m-bottom_small">Insured Address</h3>
+                            <lightning-input label="Street" value={editedPrimaryInsured.MailingStreet} data-record="primary" data-field="MailingStreet" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="City" value={editedPrimaryInsured.MailingCity} data-record="primary" data-field="MailingCity" onchange={handleAboutChange}></lightning-input>
+                           <lightning-combobox 
+    label="State" 
+    value={editedPrimaryInsured.MailingState} 
+    options={stateOptions}
+    data-record="primary" 
+    data-field="MailingState" 
+    onchange={handleAboutChange}
+    dropdown-alignment="auto">
+</lightning-combobox>
+                            <lightning-input label="Postal Code" value={editedPrimaryInsured.MailingPostalCode} data-record="primary" data-field="MailingPostalCode" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Country" value={editedPrimaryInsured.MailingCountry} data-record="primary" data-field="MailingCountry" onchange={handleAboutChange}></lightning-input>
+
+                            <hr class="slds-m-vertical_medium" />
+
+                            <h3 class="slds-text-heading_small slds-m-bottom_small">2nd Named Insured</h3>
+                            <lightning-input label="First Name" value={editedSecondaryInsured.FirstName} data-record="secondary" data-field="FirstName" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Last Name" value={editedSecondaryInsured.LastName} data-record="secondary" data-field="LastName" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Phone" type="tel" value={editedSecondaryInsured.Phone} data-record="secondary" data-field="Phone" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Phone 2" type="tel" value={editedSecondaryInsured.MobilePhone} data-record="secondary" data-field="MobilePhone" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Email" type="email" value={editedSecondaryInsured.Email} data-record="secondary" data-field="Email" onchange={handleAboutChange}></lightning-input>
+                            <h3 class="slds-text-heading_small slds-m-top_medium slds-m-bottom_small">Property Address</h3>
+                            <lightning-input label="Street" value={editedSecondaryInsured.OtherStreet} data-record="secondary" data-field="OtherStreet" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="City" value={editedSecondaryInsured.OtherCity} data-record="secondary" data-field="OtherCity" onchange={handleAboutChange}></lightning-input>
+                           <lightning-combobox label="State" value={editedSecondaryInsured.OtherState} options={stateOptions} data-record="secondary" data-field="OtherState" onchange={handleAboutChange} dropdown-alignment="auto">
+                            </lightning-combobox>
+                            <lightning-input label="Postal Code" value={editedSecondaryInsured.OtherPostalCode} data-record="secondary" data-field="OtherPostalCode" onchange={handleAboutChange}></lightning-input>
+                            <lightning-input label="Country" value={editedSecondaryInsured.OtherCountry} data-record="secondary" data-field="OtherCountry" onchange={handleAboutChange}></lightning-input>
+                        </div>
+                    </template>
+                </lightning-card>
+            </div>
+
+            <div class="slds-col slds-size_1-of-2">
+                <lightning-card class="custom-card fixed-size-section" title="Servicing Case" icon-name="standard:case">
+    <div slot="actions">
+        <lightning-button label="Create Case" variant="brand" onclick={handleCreateCase}></lightning-button>
+    </div>
+ <div class="slds-card__body slds-p-around_none">
+    <div class="scroll-section">
+        <table class="list-table">
+            <thead>
+                <tr>
+                    <th>Case #</th>
+                    <th>Status</th>
+                    <th>Subject</th>
+                    <th>Case comments</th>
+                    <th>Created By</th>
+                    <th>Created Date</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- CHANGED: limitedCases -->
+                <template for:each={limitedCases} for:item="caseRec">
+                    <tr key={caseRec.Id}>
+                        <td>
+                            <a href="javascript:void(0);" data-id={caseRec.Id} onclick={handleNavigateToCase}>
+                                {caseRec.CaseNumber}
+                            </a>
+                        </td>
+                        <td><span class={caseRec.statusClass}>{caseRec.Status}</span></td>
+                        <td>{caseRec.Subject}</td>
+                        <td style="padding-left: 2rem;">{caseRec.commentCount}</td>
+                        <td>{caseRec.CreatedBy.Name}</td>
+                        <td>
+                        <lightning-formatted-date-time value={caseRec.CreatedDate}></lightning-formatted-date-time>
+                        </td>
+                     </tr>
+                </template>
+            </tbody>
+        </table>
+    </div>
+    </div>
+
+    <template if:true={hasManyCases}>
+        <div slot="footer" class="slds-text-align_center">
+            <lightning-button
+                label="View All"
+                variant="neutral"
+                onclick={handleViewAllCases}>
+            </lightning-button>
+        </div>
+    </template>
+</lightning-card>
+
+            </div>
+        </div>
+
+        <div class="slds-grid slds-wrap slds-gutters slds-grid_vertical-stretch" style="margin-bottom: 1.5rem;">
+            <div class="slds-col slds-size_1-of-">
+                <lightning-card class="custom-card fixed-size-section" title="Policies" icon-name="standard:entitlement_policy">
+                     <div class="slds-card__body slds-p-around_none">
+                <div class="scroll-section">
+                    <table class="list-table">
+                        <thead>
+                            <tr>
+                                <th>Policy #</th>
+                                <th>Status</th>
+                                <th>Term</th>
+                                <th>Type</th>
+                                <th>Executive</th>
+                                <th>Company</th>
+                                <th>Description</th>
+                                <th>Dec Url</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template for:each={limitedPolicies} for:item="policy">
+                                <tr key={policy.Id}>
+                                    <td>
+                                        <a href="javascript:void(0);" data-id={policy.Id} onclick={handleNavigateToAMS360Policy}>
+                                            {policy.policyNumber}
+                                        </a>
+                                    </td>
+                                    <td><span class={policy.statusClass}>{policy.status}</span></td>
+                                    <td>{policy.term}</td>
+                                    <td>{policy.type}</td>
+                                    <td class="slds-cell-wrap">{policy.Executive}</td> <td class="slds-cell-wrap">{policy.company}</td>   <td class="slds-cell-wrap">{policy.Description}</td>
+                                    <td>
+                                        <a href="javascript:void(0);" data-id={policy.PolicyDecUrl} onclick={handleNavigateToAMS360PolicyDec}>
+                                            DEC URL
+                                        </a>
+                                    </td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+                <template if:true={hasManyPolicies}>
+                    <div slot="footer" class="slds-text-align_center">
+                        <lightning-button
+                            label="View All"
+                            variant="neutral"
+                            onclick={handleViewAllPolicies}>
+                        </lightning-button>
+                    </div>
+                </template>
+            </lightning-card>
+      </div>
+</div>
+
+        <div class="slds-grid slds-wrap slds-gutters slds-grid_vertical-stretch" style="margin-bottom: 1.5rem;">
+            
+            <div class="slds-col slds-size_1-of-2">
+                <lightning-card class="custom-card fixed-size-section" title="Notes" icon-name="standard:note">
+    <div slot="actions">
+        <lightning-button label="New Note" variant="brand" onclick={openNoteModal}></lightning-button>
+    </div>
+
+    <div class="scroll-section">
+        <table class="list-table">
+    <thead>
+        <tr>
+            <th>S.No</th>
+            <th>Title</th>
+            <th>Note</th>
+            <th>Created By</th>
+            <th>Date</th>
+            <th>Action</th> </tr>
+    </thead>
+    <tbody>
+        <template for:each={limitedNotes} for:item="note">
+            <tr key={note.Id} data-id={note.Id}> 
+                <td>{note.serialNo}</td>
+                <td>
+                    <a href="javascript:void(0);" 
+                       data-id={note.Id} 
+                       data-type="note" 
+                       onclick={handleRowClick}>
+                        {note.Title}
+                    </a>
+                </td>
+                <td class="slds-cell-wrap">{note.description}</td>
+                <td>{note.CreatedBy.Name}</td>
+                <td>
+                    <lightning-formatted-date-time value={note.CreatedDate}></lightning-formatted-date-time>
+                </td>
+                <td>
+                    <lightning-button-icon 
+                        icon-name="utility:edit" 
+                        variant="border-filled" 
+                        alternative-text="Edit Note" 
+                        title="Edit Note"
+                        data-id={note.Id}
+                        onclick={handleEditNote}
+                        class="slds-m-right_x-small">
+                    </lightning-button-icon>
+
+                    <lightning-button-icon 
+                        icon-name="utility:copy_to_clipboard" 
+                        variant="border-filled" 
+                        alternative-text="Copy Note" 
+                        title="Copy Note Content"
+                        data-content={note.description}
+                        onclick={handleCopyNote}>
+                    </lightning-button-icon>
+                </td>
+            </tr>
+        </template>
+    </tbody>
+</table>
+    </div>
+
+    <template if:true={hasManyNotes}>
+        <div slot="footer" class="slds-text-align_center">
+            <lightning-button
+                label="View All"
+                variant="neutral"
+                onclick={handleViewAllNotes}>
+            </lightning-button>
+        </div>
+    </template>
+</lightning-card>
+
+            </div>
+
+            <div class="slds-col slds-size_1-of-2">
+               <lightning-card class="custom-card fixed-size-section" title="Files" icon-name="standard:file">
+    <div slot="actions">
+        <lightning-button label="Add File" variant="brand" onclick={openFileUpload}></lightning-button>
+    </div>
+
+    <div class="scroll-section">
+       <table class="list-table">
+    <thead>
+        <tr>
+            <th>File</th>
+            <th>Type</th>
+            <th>Description</th>
+            <th>Created By</th>
+            <th>Created Date</th>
+        </tr>
+    </thead>
+       <tbody>
+    <template for:each={limitedFiles} for:item="fileRec">
+        <tr key={fileRec.Id} 
+            class="clickable-row"
+            data-id={fileRec.Id} 
+            data-contentdocumentid={fileRec.ContentDocumentId}
+            data-type="file" 
+            onclick={handleRowClick}>
+            
+            <td class="slds-cell-wrap">
+                <a href="javascript:void(0);" tabindex="-1">
+                    {fileRec.ContentDocument.Title}
+                </a>
+            </td>
+            <td>{fileRec.ContentDocument.LatestPublishedVersion.Type__c}</td>
+            <td class="slds-cell-wrap">{fileRec.ContentDocument.Description}</td>
+            <td>{fileRec.ContentDocument.CreatedBy.Name}</td>
+            <td>
+                <lightning-formatted-date-time value={fileRec.ContentDocument.CreatedDate}></lightning-formatted-date-time>
+            </td>
+            </tr>
+    </template>
+</tbody>
+
+
+        </table>
+    </div>
+
+    <template if:true={hasManyFiles}>
+        <div slot="footer" class="slds-text-align_center">
+            <lightning-button
+                label="View All"
+                variant="neutral"
+                onclick={handleViewAllFiles}>
+            </lightning-button>
+        </div>
+    </template>
+</lightning-card>
+
+            </div>
+        </div>
+    </template>
+
+    <template if:false={account}>
+        <p>No account data available.</p>
+    </template>
+
+    <template if:true={isCreatingNote}>
+        <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open">
+            <div class="slds-modal__container">
+                <header class="slds-modal__header">
+                    <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="Close" onclick={closeNoteModal}>
+                        <lightning-icon icon-name="utility:close" alternative-text="close" variant="inverse" size="small"></lightning-icon>
+                        <span class="slds-assistive-text">Close</span>
+                    </button>
+                    <h2 class="slds-text-heading_medium">{noteModalTitle}</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <lightning-input label="Title" value={newNoteTitle} data-field="title" onchange={handleNoteInput} required class="slds-m-bottom_small"></lightning-input>
+                    <lightning-textarea label="Body" value={newNoteBody} data-field="body" onchange={handleNoteInput} style="height: 150px;"></lightning-textarea>
+                </div>
+                <footer class="slds-modal__footer">
+                    <lightning-button label="Cancel" onclick={closeNoteModal} class="slds-m-right_small"></lightning-button>
+                    <lightning-button variant="brand" label="Save" onclick={handleSaveNote}></lightning-button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+<template if:true={showFileUploader}>
+    <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container">
+            <header class="slds-modal__header">
+                <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="Close" onclick={closeUploadModal}>
+                    <lightning-icon icon-name="utility:close" alternative-text="close" variant="inverse" size="small"></lightning-icon>
+                    <span class="slds-assistive-text">Close</span>
+                </button>
+                <h2 class="slds-text-heading_medium">
+                    {uploadTitle} </h2>
+            </header>
+            
+            <div class="slds-modal__content slds-p-around_medium">
+                
+                <template if:true={isStepOne}>
+                    <div class="slds-text-align_center slds-p-around_large">
+                        <p class="slds-m-bottom_medium">Select files to upload first.</p>
+                        <lightning-file-upload
+                            label="Attach files"
+                            name="fileUploader"
+                            record-id={recordId}
+                            accepted-formats={acceptedFormats}
+                            onuploadfinished={handleUploadFinished}
+                            multiple>
+                        </lightning-file-upload>
+                    </div>
+                </template>
+
+                <template if:false={isStepOne}>
+                    <div class="slds-p-horizontal_small">
+                        <div class="slds-notify slds-notify_alert slds-alert_info slds-m-bottom_medium">
+                            <p>{uploadedFileCount} file(s) uploaded successfully.</p>
+                        </div>
+
+                        <lightning-combobox
+                            name="fileType"
+                            label="Document Type"
+                            value={fileType}
+                            placeholder="Select a type..."
+                            options={typeOptions}
+                            onchange={handleTypeChange}
+                            class="slds-m-bottom_medium">
+                        </lightning-combobox>
+
+                        <lightning-textarea 
+                            name="fileDescription" 
+                            label="Enter Description" 
+                            placeholder="Type a description for these files..." 
+                            value={fileDescription} 
+                            onchange={handleDescriptionChange}
+                            class="slds-m-bottom_medium">
+                        </lightning-textarea>
+                    </div>
+                </template>
+
+            </div>
+            
+            <footer class="slds-modal__footer">
+                <template if:true={isStepOne}>
+                    <lightning-button label="Cancel" onclick={closeUploadModal}></lightning-button>
+                </template>
+                
+                <template if:false={isStepOne}>
+                     <lightning-button label="Skip & Finish" onclick={handleFinish} class="slds-m-right_small"></lightning-button>
+                    <lightning-button label="Save Details" variant="brand" onclick={handleSaveDetails}></lightning-button>
+                </template>
+            </footer>
+        </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+</template>
+</template>
