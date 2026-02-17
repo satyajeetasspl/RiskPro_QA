@@ -1,0 +1,26 @@
+name: Deploy to QA Sandbox
+
+on:
+  push:
+    branches:
+      - qa 
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest 
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Install Salesforce CLI
+        run: npm install -g @salesforce/cli
+
+      - name: Authenticate to QA Sandbox
+        run: |
+          echo "${{ secrets.SFDX_AUTH_URL }}" > authfile.txt
+          sf org login sfdx-url -f authfile.txt -a QA_SANDBOX
+          rm authfile.txt
+
+      - name: Deploy Metadata
+        run: sf project deploy start --target-org QA_SANDBOX --ignore-conflicts
