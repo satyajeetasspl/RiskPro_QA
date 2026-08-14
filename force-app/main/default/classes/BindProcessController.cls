@@ -1,6 +1,5 @@
 public without sharing class BindProcessController {
     
-    // --- Visualforce Properties for Proposal Summary PDF ---
     public List<SummaryPolicyWrapper> summaryPolicies { get; set; }
     public String totalPremium { get; set; }
     public String totalAgencyFee { get; set; }
