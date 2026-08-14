@@ -31,8 +31,21 @@ public without sharing class RecordAuditController {
             wrapper.fieldName = log.Field_Name__c;
             wrapper.modifiedByName = log.CreatedBy.Name;
             wrapper.modifiedDate = log.CreatedDate;
-            wrapper.oldValue = (log.Old_Value__c != null) ? log.Old_Value__c : '';
-            wrapper.newValue = (log.New_Value__c != null) ? log.New_Value__c : '';
+            
+            // Failsafe for Old Value
+            String oldVal = (log.Old_Value__c != null) ? log.Old_Value__c : '';
+            if (oldVal.contains('&lt;')) {
+                oldVal = oldVal.unescapeHtml4();
+            }
+            wrapper.oldValue = oldVal;
+
+            // Failsafe for New Value
+            String newVal = (log.New_Value__c != null) ? log.New_Value__c : '';
+            if (newVal.contains('&lt;')) {
+                newVal = newVal.unescapeHtml4();
+            }
+            wrapper.newValue = newVal;
+            
             results.add(wrapper);
         }
 

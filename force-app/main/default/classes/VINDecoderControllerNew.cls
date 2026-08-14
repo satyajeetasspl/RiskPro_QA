@@ -62,6 +62,7 @@ public with sharing class VINDecoderControllerNew {
         v.Make__c = (String) vehicleData.get('Make__c');
         v.Model__c = (String) vehicleData.get('Model__c');
         v.Year__c = (String) vehicleData.get('Year__c');
+        v.Purchase_Year__c = (String) vehicleData.get('Purchase_Year__c');
         v.Annual_Miles__c = (String) vehicleData.get('Annual_Miles__c');
         v.Lienholder__c = (String) vehicleData.get('Lienholder__c');
         v.Lead__c = (String) vehicleData.get('Lead__c');

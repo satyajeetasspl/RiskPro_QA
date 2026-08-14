@@ -7,34 +7,11 @@
         controller.username = 'test@force.com';
         controller.email = 'test@force.com';
         controller.communityNickname = 'test';
+        // registerUser will always return null when the page isn't accessed as a guest user
+        System.assert(controller.registerUser() == null);    
         
-        // ---------------------------------------------------------
-        // 1. COVER THE PASSWORDS DON't MATCH BLOCK
-        // ---------------------------------------------------------
         controller.password = 'abcd1234';
-        controller.confirmPassword = 'mismatched_password!';
-        
-        // This executes the ApexPages.Message and return null block
-        controller.registerUser(); 
-        
-
-        // ---------------------------------------------------------
-        // 2. COVER THE SUCCESSFUL SITE.LOGIN BLOCK
-        // ---------------------------------------------------------
-        controller.password = 'abcd1234';
-        controller.confirmPassword = 'abcd1234';
-        
-        // This executes Site.login(username, password, null)
-        controller.registerUser(); 
-        
-
-        // ---------------------------------------------------------
-        // 3. COVER THE NULL PASSWORD REDIRECT BLOCK
-        // ---------------------------------------------------------
-        controller.password = null;
-        controller.confirmPassword = null;
-        
-        // This executes the System.Page.SiteRegisterConfirm redirect logic
-        controller.registerUser(); 
+        controller.confirmPassword = 'abcd123';
+        System.assert(controller.registerUser() == null);  
     }
 }

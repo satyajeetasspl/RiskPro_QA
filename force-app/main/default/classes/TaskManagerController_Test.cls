@@ -117,7 +117,7 @@ public class TaskManagerController_Test {
 
     @isTest
     static void testIsCurrentUserSysAdmin() {
-        List<User> admins = [SELECT Id FROM User WHERE Profile.Name = 'System Administrator' LIMIT 1];
+        List<User> admins = [SELECT Id FROM User WHERE Profile.Name = 'System Administrator' AND IsActive = true LIMIT 1];
         if (!admins.isEmpty()) {
             System.runAs(admins[0]) {
                 TaskManagerController.isCurrentUserSysAdmin();
@@ -126,7 +126,7 @@ public class TaskManagerController_Test {
             TaskManagerController.isCurrentUserSysAdmin();
         }
 
-        List<User> stds = [SELECT Id FROM User WHERE Profile.Name = 'Standard User' LIMIT 1];
+        List<User> stds = [SELECT Id FROM User WHERE Profile.Name = 'Standard User' AND IsActive = true  LIMIT 1];
         if (!stds.isEmpty()) {
             System.runAs(stds[0]) {
                 TaskManagerController.isCurrentUserSysAdmin();

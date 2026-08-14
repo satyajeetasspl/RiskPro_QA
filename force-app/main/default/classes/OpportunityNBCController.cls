@@ -80,6 +80,7 @@ public with sharing class OpportunityNBCController {
             
             List<Policy_Information__c> policies = [
                 SELECT Id, Carrier__c, Lines__c, Policy__c, Premium__c,
+                       Agency_Fee__c, Agency_Fee_Waiver_Request__c, Agency_Fee_Waiver_Decision__c,
                        Paid_To_Date__c, Effective_Date__c, Generate_Invoice__c,
                        Additional_Comments__c, Email_Invoice__c,
                        Selected_Address__Street__s, Selected_Address__City__s,
@@ -105,12 +106,13 @@ public with sharing class OpportunityNBCController {
             return w;
         }
         
-        @AuraEnabled
+       @AuraEnabled
     public static void saveOpportunityNBC(
         Opportunity opp, 
         Account acc,   
         List<Policy_Information__c> policies,
-        String selectedAddressType
+        String selectedAddressType,
+        Map<String, String> invoiceTypes
     ) {
         String street, city, state, postal, country;
         
@@ -140,9 +142,25 @@ public with sharing class OpportunityNBCController {
         opp.Agent_1__c = currentOpp.OwnerId;
         
         opp.Is_NBC__c = true;
+        opp.StageName = 'NBC';
         update opp;
         
-        // 4. UPDATE POLICIES (Link to Opp + Stamp Address)
+        // --- NEW LOGIC: Query existing policies to protect Date_Bound__c ---
+        Set<Id> existingPolicyIds = new Set<Id>();
+        for (Policy_Information__c p : policies) {
+            if (p.Id != null) existingPolicyIds.add(p.Id);
+        }
+        
+        Map<Id, Policy_Information__c> dbPoliciesMap = new Map<Id, Policy_Information__c>();
+        if (!existingPolicyIds.isEmpty()) {
+            dbPoliciesMap = new Map<Id, Policy_Information__c>([
+                SELECT Id, Policy_Type__c, Agent_1__c, Agent_2__c, Date_Bound__c 
+                FROM Policy_Information__c 
+                WHERE Id IN :existingPolicyIds
+            ]);
+        }
+        // -------------------------------------------------------------------
+        
         List<Policy_Information__c> inserts = new List<Policy_Information__c>();
         List<Policy_Information__c> updates = new List<Policy_Information__c>();
         
@@ -150,7 +168,6 @@ public with sharing class OpportunityNBCController {
             p.Account__c = acc.Id;
             p.Opportunity__c = opp.Id;
             
-            // Stamp the selected address
             p.Address__Street__s = street;
             p.Address__City__s = city;
             p.Address__StateCode__s = state;
@@ -164,15 +181,28 @@ public with sharing class OpportunityNBCController {
             p.Selected_Address__CountryCode__s = country;
             
             if (p.Id == null) {
+                // Brand new policy created directly on NBC screen
                 p.Agent_1__c = currentOpp.OwnerId;  
                 p.Agent_2__c = opp.Agent_2__c;      
                 p.Date_Bound__c = opp.Date_Bound__c; 
-            }
-            
-            if (p.Id == null) {
                 p.Policy_Type__c = 'NBC';
+                p.Final_Agency_Fee__c = (p.Agency_Fee__c != null) ? p.Agency_Fee__c : 0;
                 inserts.add(p);
             } else {
+                // Pre-existing Policy (From Policy Check LWC)
+                Policy_Information__c dbPol = dbPoliciesMap.get(p.Id);
+                
+                // Only convert to NBC and stamp the dates IF it hasn't been done yet
+                if (dbPol != null && dbPol.Policy_Type__c != 'NBC') {
+                    p.Policy_Type__c = 'NBC';
+                    p.Agent_1__c = (dbPol.Agent_1__c != null) ? dbPol.Agent_1__c : currentOpp.OwnerId;
+                    p.Agent_2__c = (dbPol.Agent_2__c != null) ? dbPol.Agent_2__c : opp.Agent_2__c;
+                    p.Date_Bound__c = (dbPol.Date_Bound__c != null) ? dbPol.Date_Bound__c : opp.Date_Bound__c;
+                    p.Final_Agency_Fee__c = (p.Agency_Fee__c != null) ? p.Agency_Fee__c : 0;
+                } else if (dbPol != null && dbPol.Policy_Type__c == 'NBC') {
+                     p.Date_Bound__c = dbPol.Date_Bound__c;
+                }
+                
                 updates.add(p);
             }
         }
@@ -180,7 +210,20 @@ public with sharing class OpportunityNBCController {
         if (!inserts.isEmpty()) insert inserts;
         if (!updates.isEmpty()) update updates;
         
-        generateInvoicesFromNBC(opp.Id);
+        // Trigger Invoices
+        Map<String, List<Id>> policyGroups = new Map<String, List<Id>>();
+        for (Integer i = 0; i < policies.size(); i++) {
+            Policy_Information__c p = policies[i];
+            if (p.Generate_Invoice__c == true) {
+                String type = (invoiceTypes != null && invoiceTypes.containsKey(String.valueOf(i))) ? invoiceTypes.get(String.valueOf(i)) : 'Direct Bill';
+                if (!policyGroups.containsKey(type)) policyGroups.put(type, new List<Id>());
+                policyGroups.get(type).add(p.Id);
+            }
+        }
+
+        for (String type : policyGroups.keySet()) {
+            System.enqueueJob(new GeneratePolicyInvoiceJob(acc.Id, policyGroups.get(type), opp.Id, type));
+        }
     }
         
         @AuraEnabled
@@ -216,7 +259,8 @@ public with sharing class OpportunityNBCController {
             Title = fileName.removeEnd('.pdf').removeEnd('.txt'),
             PathOnClient = fileName,
             VersionData = content,
-            FirstPublishLocationId = opportunityId
+            FirstPublishLocationId = opportunityId,
+            Type__c = 'New Business Checklist'
         );
         insert cv;
     }
@@ -242,22 +286,26 @@ public with sharing class OpportunityNBCController {
                 }
             }
     
+            // Mark all as processed
             List<Policy_Information__c> updates = new List<Policy_Information__c>();
             for (Policy_Information__c p : policiesToInvoice) {
-                Policy_Information__c pUpdate = new Policy_Information__c(Id = p.Id);
-                pUpdate.Generate_Invoice__c = false; 
-                updates.add(pUpdate);
+                updates.add(new Policy_Information__c(Id = p.Id, Generate_Invoice__c = false));
             }
             update updates;
     
+            // Collect all IDs and enqueue ONE consolidated invoice job
+            List<Id> allPolicyIds = new List<Id>();
+            Id targetId = null;
             for (Policy_Information__c p : policiesToInvoice) {
-                Id targetId = p.Lead__c;
-                if (targetId == null) targetId = fallbackLeadId;
-                if (targetId == null && opp.AccountId != null) targetId = opp.AccountId;
-    
-                if (targetId != null) {
-                    System.enqueueJob(new GeneratePolicyInvoiceJob(targetId, p.Id, opportunityId));
+                allPolicyIds.add(p.Id);
+                if (targetId == null) {
+                    targetId = p.Lead__c != null ? p.Lead__c : fallbackLeadId;
                 }
+            }
+            if (targetId == null && opp.AccountId != null) targetId = opp.AccountId;
+    
+            if (targetId != null && !allPolicyIds.isEmpty()) {
+                System.enqueueJob(new GeneratePolicyInvoiceJob(targetId, allPolicyIds, opportunityId));
             }
         }
     
@@ -323,4 +371,49 @@ public static List<Policy_Information__c> getAMS360Policies(Id accountId) {
     }
     return mappedPolicies;
 }
+    
+    // GATEKEEPER WRAPPER
+    public class PolicyCheckValidation {
+        @AuraEnabled public Boolean allowNBC { get; set; }
+        @AuraEnabled public Integer maxPolicies { get; set; }
+        @AuraEnabled public String errorMessage { get; set; }
+    }
+
+    // GATEKEEPER VALIDATION METHOD
+    @AuraEnabled(cacheable=true)
+    public static PolicyCheckValidation getPolicyCheckValidation(Id opportunityId) {
+        PolicyCheckValidation result = new PolicyCheckValidation();
+        result.allowNBC = true;
+        result.maxPolicies = 0;
+        result.errorMessage = '';
+
+        // Query all related Policy Checks (Quotes) for this Opportunity
+        List<Policy_Information__c> quotes = [
+            SELECT Id, Policy_Status__c 
+            FROM Policy_Information__c 
+            WHERE Opportunity__c = :opportunityId 
+            AND Policy_Type__c = 'Quote'
+        ];
+
+        Integer submittedCount = 0;
+        Integer approvedCount = 0;
+
+        for (Policy_Information__c quote : quotes) {
+            if (quote.Policy_Status__c == 'Submitted') submittedCount++;
+            else if (quote.Policy_Status__c == 'Approved') approvedCount++;
+        }
+
+        if (submittedCount > 0) {
+            result.allowNBC = false;
+            result.errorMessage = 'Cannot create NBC: A Policy Check approval is required to create an NBC.';
+        } else if (approvedCount == 0) {
+            result.allowNBC = false;
+            result.errorMessage = 'Cannot create NBC:  A Policy Check approval is required to create an NBC.';
+        } else {
+            result.allowNBC = true;
+            result.maxPolicies = approvedCount;
+        }
+
+        return result;
+    }
     }

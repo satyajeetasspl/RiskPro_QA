@@ -1,0 +1,8 @@
+public enum PolicyState {
+    REFUNDED,
+    REFUND_DUE,
+    FULLY_PAID,
+    APPLY_CREDIT_ELIGIBLE,
+    PAYMENT_DUE,
+    NO_FEE_INACTIVE
+}

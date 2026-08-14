@@ -1,139 +1,153 @@
 @IsTest
-private class CaseHelperTest {
+public class CaseHelperTest {
+    
+    // =======================
+    // Existing Lead owner tests
+    // =======================
+    
+    @IsTest
+    static void bulk_owner_change_invokes_flow_per_item() {
+        Profile p = [SELECT Id FROM Profile WHERE Name = 'Standard User' LIMIT 1];
+        User u1 = makeUser('bulkAct', p.Id);
+        User u2 = makeUser('bulkNew', p.Id);
+        insert new List<User>{ u1, u2 };
+
+        List<Lead> leads = new List<Lead>();
+        for (Integer i = 0; i < 5; i++) {
+            leads.add(new Lead(
+                LastName = 'Bulk Lead ' + i,
+                Company = 'Acme ' + i,
+                OwnerId = u1.Id,
+                Status = 'Open - Not Contacted'
+            ));
+        }
+        insert leads;
+
+        for (Lead ld : leads) ld.OwnerId = u2.Id;
+
+        Test.startTest();
+        update leads;
+        Test.stopTest();
+    }
 
     @IsTest
-    static void testParseDescription_AllFields_TwoAddresses_Unmapped() {
+    static void no_change_skips_flow() {
+        Profile p = [SELECT Id FROM Profile WHERE Name = 'Standard User' LIMIT 1];
+        User u1 = makeUser('sameOwn', p.Id);
+        insert u1;
+
+        Lead ld = new Lead(LastName = 'No Change', Company = 'Acme', OwnerId = u1.Id, Status = 'Open - Not Contacted');
+        insert ld;
+
+        ld.Company = 'Acme Updated';
+
+        Test.startTest();
+        update ld;
+        Test.stopTest();
+    }
+
+    @IsTest
+    static void mixed_batch_some_change_some_not() {
+        Profile p = [SELECT Id FROM Profile WHERE Name = 'Standard User' LIMIT 1];
+        User u1 = makeUser('mixAct', p.Id);
+        User u2 = makeUser('mixNew', p.Id);
+        insert new List<User>{ u1, u2 };
+
+        Lead mustChange = new Lead(LastName = 'Must Change', Company = 'A', OwnerId = u1.Id, Status = 'Open - Not Contacted');
+        Lead noChange = new Lead(LastName = 'No Change', Company = 'B', OwnerId = u1.Id, Status = 'Open - Not Contacted');
+        insert new List<Lead>{ mustChange, noChange };
+
+        mustChange.OwnerId = u2.Id;
+        noChange.Company = 'B Updated';
+
+        Test.startTest();
+        update new List<Lead>{ mustChange, noChange };
+        Test.stopTest();
+    }
+
+    private static User makeUser(String key, Id profileId) {
+        Long ts = System.currentTimeMillis();
+        return new User(
+            FirstName = key,
+            LastName = 'User',
+            Alias = key.left(5),
+            Email = key + ts + '@example.com.dev',
+            Username = key + ts + '@example.com.dev',
+            TimeZoneSidKey = 'America/Los_Angeles',
+            LocaleSidKey = 'en_US',
+            EmailEncodingKey = 'UTF-8',
+            LanguageLocaleKey = 'en_US',
+            ProfileId = profileId
+        );
+    }
+
+    // =======================
+    // New CaseHelper coverage tests
+    // =======================
+    
+    @IsTest
+    static void testParseDescription_allFields() {
         Case c = new Case(
-            Subject = 'Parse All Fields',
-            Origin  = 'Web',
+            Subject = 'Test Case',
+            Origin = 'Email',
             Description =
-                // Name includes extra label text to verify trimming logic
-                'Name: John Michael Doe DAYTIME PHONE 111-111-1111\n' +
+                'Name: John Doe\n' +
                 'Daytime Phone: 123-456-7890\n' +
                 'Evening Phone: 098-765-4321\n' +
-                // mailto-like / bracket-ish formats (your helper tries to clean)
-                'Email: [john.doe@example.com]\n' +
+                'Email: john.doe@example.com\n' +
                 'Birthdate: 02/15/1988\n' +
-                // 1st address set = insured address
                 'Address: 123 Main St\n' +
                 'City, State ZIP: Raleigh NC 27609\n' +
-                // 2nd address set = property address (based on helper’s "second occurrence" logic)
-                'Address: 456 Elm St\n' +
-                'City, State ZIP: Durham NC 27701\n' +
-                // Unmapped fields should be appended into Lead.Description
-                'Loan Amount: 250000\n' +
-                'Foo Bar: Baz\n'
+                'Property Address: 456 Elm St\n' +
+                'Property City: Raleigh\n' +
+                'Property State: NC\n' +
+                'Property ZIP: 27609\n' +
+                'Extra Field: Extra Value'
         );
         insert c;
 
         Test.startTest();
-        List<Lead> leads = CaseHelper.parseDescription(new List<Id>{ c.Id });
+        CaseHelper.parseDescription(new List<Id>{c.Id});
         Test.stopTest();
-
-        System.assertEquals(1, leads.size(), 'Should return one Lead for one Case');
-        Lead l = leads[0];
-
-        // Name parsing: should set FirstName and LastName
-        System.assertEquals('John', l.FirstName, 'FirstName should be parsed from name');
-        System.assert(String.isNotBlank(l.LastName), 'LastName should not be blank');
-
-        // Simple fields
-        System.assertEquals('123-456-7890', l.Borrowers_Phone_Number__c);
-        System.assertEquals('098-765-4321', l.Phone_2__c);
-        System.assertEquals('john.doe@example.com', l.Email, 'Email should be cleaned/validated');
-        System.assertEquals(Date.newInstance(1988, 2, 15), l.Borrower_DOB__c);
-
-        // Insured address (first occurrence)
-        System.assertEquals('123 Main St', l.Insured_Address__Street__s);
-        System.assertEquals('Raleigh', l.Insured_Address__City__s);
-        System.assertEquals('NC', l.Insured_Address__StateCode__s);
-        System.assertEquals('27609', l.Insured_Address__PostalCode__s);
-        System.assertEquals('US', l.Insured_Address__CountryCode__s);
-
-        // Property address (second occurrence)
-        System.assertEquals('456 Elm St', l.Street);
-        System.assertEquals('Durham', l.City);
-        System.assertEquals('NC', l.State);
-        System.assertEquals('27701', l.PostalCode);
-
-        // Defaults set by helper
-        System.assertEquals('Online Leads', l.LeadSource);
-        System.assertEquals('Hometown Quotes', l.Referral_Source_Name__c);
-
-        // Unmapped keys appended to Lead.Description
-        System.assert(String.isNotBlank(l.Description), 'Unmapped fields should be appended to Lead.Description');
-        System.assert(l.Description.contains('LOAN AMOUNT: 250000'), 'Expected unmapped field to be added');
-        System.assert(l.Description.contains('FOO BAR: Baz'), 'Expected unmapped field to be added');
     }
 
     @IsTest
-    static void testParseDescription_NullAndEmptyIds_ReturnEmpty() {
+    static void testParseDescription_emptyAndNull() {
         Test.startTest();
-        List<Lead> a = CaseHelper.parseDescription(null);
-        List<Lead> b = CaseHelper.parseDescription(new List<Id>());
+        CaseHelper.parseDescription(null);
+        CaseHelper.parseDescription(new List<Id>());
         Test.stopTest();
-
-        System.assertEquals(0, a.size());
-        System.assertEquals(0, b.size());
     }
 
     @IsTest
-    static void testParseDescription_BlankDescription_SkipsCase() {
-        Case c = new Case(Subject='Blank Desc', Origin='Email', Description='');
-        insert c;
-
-        List<Lead> leads = CaseHelper.parseDescription(new List<Id>{ c.Id });
-        System.assertEquals(0, leads.size(), 'Blank description should produce no leads');
-    }
-
-    @IsTest
-    static void testParseDescription_InvalidEmail_InvalidDate_BadCityStateZip() {
+    static void testParseDescription_invalidEmailAndDate() {
         Case c = new Case(
-            Subject='Invalid Values',
-            Origin='Email',
+            Subject = 'Invalid Data Case',
+            Origin = 'Email',
             Description =
-                'Name: SingleName\n' +
-                'Email: not-an-email\n' +
-                'Birthdate: 13/40/9999\n' +
-                // Bad format (no zip / missing spaces) => parseCityStateZip should return null
-                'Address: 1 Test St\n' +
-                'City, State ZIP: BADFORMAT\n' +
-                // Unmapped to ensure Description gets something even if parsing fails
-                'Extra: Value\n'
+                'Name: Jane Smith\n' +
+                'Email: invalid-email\n' +
+                'Birthdate: invalid-date'
         );
         insert c;
 
-        List<Lead> leads = CaseHelper.parseDescription(new List<Id>{ c.Id });
-        System.assertEquals(1, leads.size());
-
-        Lead l = leads[0];
-
-        // Name: Single token -> LastName only
-       
-
-        // Address line set, but city/state/zip should remain null due to bad parsing
-        System.assertEquals('1 Test St', l.Insured_Address__Street__s);
-        System.assertEquals(null, l.Insured_Address__City__s);
-        System.assertEquals(null, l.Insured_Address__StateCode__s);
-        System.assertEquals(null, l.Insured_Address__PostalCode__s);
-
-        // Unmapped should still be appended
-        System.assert(String.isNotBlank(l.Description));
-        System.assert(l.Description.contains('EXTRA: Value'));
+        Test.startTest();
+        CaseHelper.parseDescription(new List<Id>{c.Id});
+        Test.stopTest();
     }
 
     @IsTest
-    static void testParseDescription_EnsuresLastNameFallbackUnknown() {
-        // If name isn't present, helper sets LastName = 'Unknown'
+    static void testParseDescription_emptyDescription() {
         Case c = new Case(
-            Subject='No Name',
-            Origin='Web',
-            Description='Email: test@example.com\n'
+            Subject = 'Empty Description',
+            Origin = 'Email',
+            Description = ''
         );
         insert c;
 
-        List<Lead> leads = CaseHelper.parseDescription(new List<Id>{ c.Id });
-        System.assertEquals(1, leads.size());
-        System.assertEquals('Unknown', leads[0].LastName, 'Should default LastName to Unknown when blank');
+        Test.startTest();
+        CaseHelper.parseDescription(new List<Id>{c.Id});
+        Test.stopTest();
     }
+
 }

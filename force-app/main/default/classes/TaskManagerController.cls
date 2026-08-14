@@ -1,6 +1,6 @@
 public with sharing class TaskManagerController {
 
-    public static string webEmail='williambakow@myriskpros.com';
+    //public static string webEmail='williambakow@myriskpros.com';
     public static String webLeadEmail='leads@myriskpros.com';
     /* -------------------------------------------------
        SYSTEM ADMIN CHECK
@@ -43,7 +43,7 @@ public with sharing class TaskManagerController {
             ' AccountId, Account.Name, Account.Type' +
             ' FROM Case' +
             ' WHERE Status NOT IN (\'Completed\', \'Junk\')' +
-            ' AND SuppliedEmail NOT IN (\'' + webEmail + '\', \'' + webLeadEmail + '\')' +
+            ' AND SuppliedEmail NOT IN (\'' + webLeadEmail + '\')' +
             ' AND Archive__c = false';
 
         if (onlyMyTasks) {
@@ -69,7 +69,7 @@ public with sharing class TaskManagerController {
             ' AccountId, Account.Name, Account.Type' +
             ' FROM Case' +
             ' WHERE Archive__c = false' +
-            ' AND SuppliedEmail NOT IN (\'' + webEmail + '\', \'' + webLeadEmail + '\')' +
+            ' AND SuppliedEmail NOT IN (\'' + webLeadEmail + '\')' +
             ' AND (Status IN (\'Completed\', \'Junk\') OR Category__c = \'Completed\')';
 
         if (onlyMyTasks) {
@@ -102,7 +102,7 @@ public with sharing class TaskManagerController {
             ' AccountId, Account.Name, Account.Type' +
             ' FROM Case' +
             ' WHERE Archive__c = false' +
-            ' AND SuppliedEmail NOT IN (\'' + webEmail + '\', \'' + webLeadEmail + '\')' +
+            ' AND SuppliedEmail NOT IN ( \'' + webLeadEmail + '\')' +
             ' AND Category__c = \'' + safeCat + '\'' +
             ' AND Status NOT IN (\'Completed\', \'Closed\', \'Junk\')';
 
@@ -148,6 +148,24 @@ public with sharing class TaskManagerController {
             'WHERE Name LIKE \'%' + String.escapeSingleQuotes(searchKey) + '%\' ' +
             'ORDER BY Name LIMIT 50';
         return Database.query(query);
+    }
+
+    /* -------------------------------------------------
+       USER SEARCH (Lookup)
+       ------------------------------------------------- */
+    @AuraEnabled(cacheable=true)
+    public static List<User> searchUsers(String searchKey) {
+        if (String.isBlank(searchKey)) {
+            return new List<User>();
+        }
+        String key = '%' + searchKey + '%';
+        return [
+            SELECT Id, Name
+            FROM User
+            WHERE IsActive = true AND Name LIKE :key
+            ORDER BY Name
+            LIMIT 50
+        ];
     }
 
 }

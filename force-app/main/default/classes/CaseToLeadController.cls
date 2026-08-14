@@ -81,7 +81,6 @@ public with sharing class CaseToLeadController {
         }
     }
 
-    @TestVisible
     private static void copyFilesToLead(Id caseId, Id leadId) {
         Set<Id> contentDocumentIds = new Set<Id>();
         List<ContentDocumentLink> newLinks = new List<ContentDocumentLink>();

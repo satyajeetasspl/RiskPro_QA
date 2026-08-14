@@ -1,23 +1,48 @@
 public with sharing class RecordNotesController {
 
     @AuraEnabled(cacheable=true)
-    public static List<ContentNote> getNotes(Id recordId) {
-        if (recordId == null) return new List<ContentNote>();
+    public static List<Map<String, Object>> getNotes(Id recordId) {
+        if (recordId == null) return new List<Map<String, Object>>();
         Set<Id> noteIds = new Set<Id>();
+        
         for (ContentDocumentLink cdl : [SELECT ContentDocumentId FROM ContentDocumentLink WHERE LinkedEntityId = :recordId AND ContentDocument.FileType = 'SNOTE']) {
             noteIds.add(cdl.ContentDocumentId);
         }
-        if (noteIds.isEmpty()) return new List<ContentNote>();
-        return [SELECT Id, Title, TextPreview, CreatedDate, CreatedBy.Name, Content FROM ContentNote WHERE Id IN :noteIds ORDER BY CreatedDate DESC];
+        if (noteIds.isEmpty()) return new List<Map<String, Object>>();
+        
+        List<Map<String, Object>> result = new List<Map<String, Object>>();
+        
+        for (ContentNote cn : [SELECT Id, Title, TextPreview, CreatedDate, CreatedBy.Name, LastModifiedDate, LastModifiedBy.Name, Content FROM ContentNote WHERE Id IN :noteIds ORDER BY LastModifiedDate DESC]) {
+            Map<String, Object> noteMap = new Map<String, Object>();
+            noteMap.put('Id', cn.Id);
+            noteMap.put('Title', cn.Title);
+            noteMap.put('TextPreview', cn.TextPreview);
+            noteMap.put('CreatedDate', cn.CreatedDate);
+            noteMap.put('CreatedBy', new Map<String, Object>{'Name' => cn.CreatedBy.Name});
+            noteMap.put('LastModifiedDate', cn.LastModifiedDate);
+            noteMap.put('LastModifiedBy', new Map<String, Object>{'Name' => cn.LastModifiedBy.Name});
+            
+            String htmlContent = '';
+            if (cn.Content != null) {
+                try {
+                    htmlContent = cn.Content.toString();
+                    if (htmlContent.contains('<')) {
+                        htmlContent = htmlContent.unescapeHtml4();
+                    }
+                } catch(Exception e) {
+                    htmlContent = 'Error loading note.';
+                }
+            }
+            noteMap.put('Content', htmlContent);
+            result.add(noteMap);
+        }
+        return result;
     }
 
     @AuraEnabled
     public static Id createNote(Id recordId, String title, String body) {
         if (recordId == null) throw new AuraHandledException('Record Id is required.');
-
-        if (checkDuplicateAction(recordId, 'Created')) {
-            return null;
-        }
+        if (checkDuplicateAction(recordId, 'Created')) return null;
 
         String noteTitle = String.isBlank(title) ? 'Untitled Note' : title.trim();
         String noteBody = (body == null) ? '' : body;
@@ -48,10 +73,7 @@ public with sharing class RecordNotesController {
     @AuraEnabled
     public static void updateNote(Id noteId, String title, String body, Id parentRecordId) {
         if (noteId == null) throw new AuraHandledException('Note Id is required.');
-
-        if (checkDuplicateAction(parentRecordId, 'Updated')) {
-            return;
-        }
+        if (checkDuplicateAction(parentRecordId, 'Updated')) return;
 
         ContentNote note = [SELECT Id, Title, Content FROM ContentNote WHERE Id = :noteId LIMIT 1];
 
@@ -61,11 +83,10 @@ public with sharing class RecordNotesController {
         String newTitle = String.isBlank(title) ? 'Untitled Note' : title.trim();
 
         note.Title = newTitle;
-        note.Content = Blob.valueOf(newBody.escapeXml());
+        note.Content = Blob.valueOf(newBody);
         update note;
 
         List<Note_History_Logs__c> logs = new List<Note_History_Logs__c>();
-
         if (oldTitle != newTitle) {
             logs.add(generateLog(parentRecordId, noteId, 'Updated', 'Title', oldTitle, newTitle));
         }
@@ -79,12 +100,8 @@ public with sharing class RecordNotesController {
     private static Boolean checkDuplicateAction(Id parentId, String action) {
         Datetime threshold = System.now().addSeconds(-2);
         Integer count = [
-            SELECT COUNT()
-            FROM Note_History_Logs__c
-            WHERE Parent_Record_Id__c = :parentId
-            AND CreatedById = :UserInfo.getUserId()
-            AND Action__c = :action
-            AND CreatedDate >= :threshold
+            SELECT COUNT() FROM Note_History_Logs__c
+            WHERE Parent_Record_Id__c = :parentId AND CreatedById = :UserInfo.getUserId() AND Action__c = :action AND CreatedDate >= :threshold
         ];
         return count > 0;
     }
@@ -109,5 +126,11 @@ public with sharing class RecordNotesController {
         } catch (Exception e) {
             return '';
         }
+    }
+    
+    @AuraEnabled(cacheable=true)
+    public static Boolean isCurrentUserAdmin() {
+        Profile p = [SELECT Name FROM Profile WHERE Id = :UserInfo.getProfileId() LIMIT 1];
+        return p.Name == 'System Administrator';
     }
 }

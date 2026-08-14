@@ -1,13 +1,111 @@
 public with sharing class LeadTriggerHandler implements TriggerInterface {
     public void beforeInsert(List<SObject> newRecords) {}
-    public void beforeUpdate(Map<Id, SObject> mapNewRecords, Map<Id, SObject> mapOldRecords) {}
+    public void beforeUpdate(Map<Id, SObject> mapNewRecords, Map<Id, SObject> mapOldRecords) {
+        validateAgencyFeesForDispositions(mapNewRecords, mapOldRecords);
+    }
+
+    private void validateAgencyFeesForDispositions(Map<Id, SObject> mapNewRecords, Map<Id, SObject> mapOldRecords) {
+        Set<Id> leadIdsToCheck = new Set<Id>();
+        for (Id leadId : mapNewRecords.keySet()) {
+            Lead newLd = (Lead) mapNewRecords.get(leadId);
+            Lead oldLd = (Lead) mapOldRecords.get(leadId);
+            if ((newLd.IsConverted && !oldLd.IsConverted) || (newLd.Status == 'Not Sold' && oldLd.Status != 'Not Sold')) {
+                leadIdsToCheck.add(leadId);
+            }
+        }
+        
+        if (leadIdsToCheck.isEmpty()) {
+            return;
+        }
+
+        List<Policy_Information__c> policies = [
+            SELECT Id, Lead__c, Premium__c, Agency_Fee__c, Policy_Status__c, Policy_Bound__c, 
+                   Replacement_Initiated__c, Is_Replacement__c, Original_Policy__c, 
+                   Replacement_Credit_Status__c, Available_Credit_Amount__c, Refundable_Balance_Amount__c, 
+                   Credit_Applied_Amount__c,
+                   (SELECT Status__c FROM Agency_Fee_Invoices__r ORDER BY CreatedDate DESC LIMIT 1)
+            FROM Policy_Information__c
+            WHERE Lead__c IN :leadIdsToCheck
+        ];
+
+        Map<Id, List<Policy_Information__c>> leadToPolicies = new Map<Id, List<Policy_Information__c>>();
+        for (Policy_Information__c p : policies) {
+            if (!leadToPolicies.containsKey(p.Lead__c)) {
+                leadToPolicies.put(p.Lead__c, new List<Policy_Information__c>());
+            }
+            leadToPolicies.get(p.Lead__c).add(p);
+        }
+
+        for (Id leadId : leadIdsToCheck) {
+            Lead newLd = (Lead) mapNewRecords.get(leadId);
+            List<Policy_Information__c> leadPols = leadToPolicies.get(leadId);
+            if (leadPols == null) continue;
+            
+            Boolean hasUnresolved = false;
+            String unresolvedReason = '';
+            
+            for (Policy_Information__c p : leadPols) {
+                // Ignore Rejected or Abandoned quotes
+                if (p.Policy_Status__c == 'Rejected' || p.Policy_Status__c == 'Abandoned') {
+                    continue;
+                }
+                
+                // 1. Check for balance due on active quotes
+                if (p.Policy_Bound__c != 'No' && !p.Replacement_Initiated__c) {
+                    Decimal newFee = p.Agency_Fee__c != null ? p.Agency_Fee__c : 0;
+                    if (newFee > 0) {
+                        Boolean isPaid = false;
+                        if (p.Agency_Fee_Invoices__r != null && !p.Agency_Fee_Invoices__r.isEmpty()) {
+                            if (p.Agency_Fee_Invoices__r[0].Status__c == 'Paid') {
+                                isPaid = true;
+                            }
+                        }
+                        Boolean isCreditApplied = (p.Replacement_Credit_Status__c == 'Applied' || p.Replacement_Credit_Status__c == 'Refunded');
+                        Decimal creditAppliedAmt = p.Credit_Applied_Amount__c != null ? p.Credit_Applied_Amount__c : 0;
+                        if (creditAppliedAmt >= newFee) {
+                            isCreditApplied = true;
+                        }
+                        
+                        if (!isPaid && !isCreditApplied) {
+                            hasUnresolved = true;
+                            unresolvedReason = 'Quote #' + (p.Quote__c != null ? p.Quote__c : 'N/A') + ' has an unpaid agency fee balance of $' + newFee.setScale(2) + '.';
+                            break;
+                        }
+                    }
+                }
+                
+                // 2. Check for original policies that have been replaced and have unresolved credit/refunds
+                if (p.Replacement_Initiated__c || p.Policy_Bound__c == 'No') {
+                    Decimal availCredit = p.Available_Credit_Amount__c != null ? p.Available_Credit_Amount__c : 0;
+                    Decimal refundBal = p.Refundable_Balance_Amount__c != null ? p.Refundable_Balance_Amount__c : 0;
+                    if (availCredit > 0 || refundBal > 0) {
+                        Boolean isCreditAppliedOrRefunded = (p.Replacement_Credit_Status__c == 'Applied' || p.Replacement_Credit_Status__c == 'Refunded');
+                        if (!isCreditAppliedOrRefunded) {
+                            hasUnresolved = true;
+                            unresolvedReason = 'Quote #' + (p.Quote__c != null ? p.Quote__c : 'N/A') + ' has an outstanding credit or refund of $' + (availCredit > 0 ? availCredit : refundBal).setScale(2) + ' that has not been applied or issued.';
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (hasUnresolved) {
+                if (newLd.IsConverted) {
+                    newLd.addError('Cannot convert Lead while unresolved agency-fee activity exists: ' + unresolvedReason);
+                } else {
+                    newLd.addError('Cannot set Lead stage to Not Sold while unresolved agency-fee activity exists: ' + unresolvedReason);
+                }
+            }
+        }
+    }
     public void beforeDelete(Map<Id, SObject> mapOldRecords) {}
     public void afterInsert(Map<Id, SObject> mapNewRecords) {}
     public void afterDelete(Map<Id, SObject> mapOldRecords) {}
     public void afterUnDelete(Map<Id, SObject> mapNewRecords) {}
 
     public void afterUpdate(Map<Id, SObject> mapNewRecords, Map<Id, SObject> mapOldRecords) {
-        System.debug('### LeadTriggerHandler: afterUpdate Started'); 
+        System.debug('### LeadTriggerHandler: afterUpdate Started');
+        HistoryTrackingController.processChanges(mapNewRecords.values(), mapOldRecords, 'Lead');
         LeadCadenceHelper.updateCandenceOwner(mapNewRecords, mapOldRecords);
 
         Id nbcQueueId;
@@ -20,6 +118,10 @@ public with sharing class LeadTriggerHandler implements TriggerInterface {
         List<Contact> contactsToUpsert = new List<Contact>();
         List<Case> casesToInsert = new List<Case>();
         List<Account> accountsToUpdate = new List<Account>(); 
+        List<Opportunity> oppsToUpsert = new List<Opportunity>();
+        Map<Id, Id> leadOppMap = new Map<Id, Id>(); 
+        Map<Id, Opportunity> leadToOppMapForFiles = new Map<Id, Opportunity>(); 
+        List<Policy_Information__c> policyInfosToUpdate = new List<Policy_Information__c>();
         
         // Custom Object Lists (Now including Drivers and Vehicles)
         List<Auto_Incidents_Violations__c> incidentsToUpdate = new List<Auto_Incidents_Violations__c>();
@@ -30,6 +132,8 @@ public with sharing class LeadTriggerHandler implements TriggerInterface {
         List<Vehicle__c> vehiclesToUpdate = new List<Vehicle__c>();
         List<Prior_Insurance_Information__c> priorInfoToUpdate = new List<Prior_Insurance_Information__c>();
         List<Cross_Sell__c> crossSellsToUpdate = new List<Cross_Sell__c>(); 
+        List<History_Tracking__c> historyTrackingToUpdate = new List<History_Tracking__c>(); 
+        List<Note_History_Logs__c> noteHistoryLogsToUpdate = new List<Note_History_Logs__c>(); 
 
         Set<String> neededBranchNames = new Set<String>{'HOUSE ACCOUNT'};
         Set<String> neededDivNames = new Set<String>{'Mortgage Broker Partners', 'HOUSE ACCOUNT'};
@@ -77,6 +181,10 @@ public with sharing class LeadTriggerHandler implements TriggerInterface {
                 System.debug('### Processing Conversion for Lead: ' + newLd.Id + ' -> Account: ' + newLd.ConvertedAccountId); 
                 leadAccountMap.put(newLd.Id, newLd.ConvertedAccountId);
                 leadsToConvert.add(newLd);
+                
+                if (newLd.ConvertedOpportunityId != null) {
+                    leadOppMap.put(newLd.Id, newLd.ConvertedOpportunityId);
+                }
 
                 // --- Contact Logic ---
                 if (newLd.ConvertedContactId != null) {
@@ -265,6 +373,29 @@ public with sharing class LeadTriggerHandler implements TriggerInterface {
                 convCase.Priority = 'Medium';
                 convCase.OwnerId = (nbcQueueId != null) ? nbcQueueId : newLd.OwnerId;
                 casesToInsert.add(convCase);
+                
+                // --- OPPORTUNITY BLOCK ---
+                Opportunity opp = new Opportunity();
+                
+                if (newLd.ConvertedOpportunityId != null) {
+                    opp.Id = newLd.ConvertedOpportunityId;
+                } else {
+                    opp.AccountId = newLd.ConvertedAccountId;
+                    opp.Name = fullName.trim() + ' - Policy Opportunity';
+                    opp.CloseDate = Date.today().addDays(30);
+                    opp.StageName = 'New'; 
+                }
+
+                // Map fields over so the LWC modals work perfectly
+                opp.Is_NBC__c = newLd.Is_NBC__c; 
+                opp.Policy_Check_Status__c = newLd.Policy_Check_Status__c;
+                opp.Policy_Check_Comments__c = newLd.Policy_Check_Comments__c;
+                opp.Agent_2__c = newLd.Agent_2__c;
+                opp.Date_Bound__c = newLd.Date_Bound__c;
+                opp.Rewrite__c = newLd.Rewrite__c;
+                
+                oppsToUpsert.add(opp);
+                leadToOppMapForFiles.put(newLd.Id, opp);
             }
         }
 
@@ -333,6 +464,32 @@ public with sharing class LeadTriggerHandler implements TriggerInterface {
                     crossSellsToUpdate.add(rec);
                 }
             }
+
+            Map<String, String> stringIdToAccountMap = new Map<String, String>();
+            for(String ldId : leadAccountMap.keySet()) {
+                if(ldId != null) {
+                    stringIdToAccountMap.put(ldId, leadAccountMap.get(ldId));
+                    if(ldId.length() >= 15) {
+                        stringIdToAccountMap.put(ldId.substring(0, 15), leadAccountMap.get(ldId));
+                    }
+                }
+            }
+
+            // History Tracking
+            for (History_Tracking__c rec : [SELECT Id, Parent_ID__c FROM History_Tracking__c WHERE Parent_ID__c IN :stringIdToAccountMap.keySet()]) {
+                if(stringIdToAccountMap.containsKey(rec.Parent_ID__c)) {
+                    rec.Parent_ID__c = stringIdToAccountMap.get(rec.Parent_ID__c);
+                    historyTrackingToUpdate.add(rec);
+                }
+            }
+
+            // Note History Logs
+            for (Note_History_Logs__c rec : [SELECT Id, Parent_Record_Id__c FROM Note_History_Logs__c WHERE Parent_Record_Id__c IN :stringIdToAccountMap.keySet()]) {
+                if(stringIdToAccountMap.containsKey(rec.Parent_Record_Id__c)) {
+                    rec.Parent_Record_Id__c = stringIdToAccountMap.get(rec.Parent_Record_Id__c);
+                    noteHistoryLogsToUpdate.add(rec);
+                }
+            }
         }
 
         // 5. Final DML Operations
@@ -394,6 +551,83 @@ public with sharing class LeadTriggerHandler implements TriggerInterface {
         }
         if (!crossSellsToUpdate.isEmpty()) {
             try { update crossSellsToUpdate; } catch (Exception e) { System.debug('### Error moving Cross Sells: ' + e.getMessage()); }
+        }
+        
+        if (!historyTrackingToUpdate.isEmpty()) {
+            try { update historyTrackingToUpdate; } catch (Exception e) { System.debug('### Error moving History Tracking: ' + e.getMessage()); }
+        }
+        if (!noteHistoryLogsToUpdate.isEmpty()) {
+            try { update noteHistoryLogsToUpdate; } catch (Exception e) { System.debug('### Error moving Note History Logs: ' + e.getMessage()); }
+        }
+        
+        // 1. UPSERT OPPORTUNITIES 
+        if (!oppsToUpsert.isEmpty()) {
+            try { 
+                upsert oppsToUpsert; 
+                // Now that Opportunities are saved, get the Ids of any that were created manually 
+                for(Id leadId : leadToOppMapForFiles.keySet()){
+                    Opportunity savedOpp = leadToOppMapForFiles.get(leadId);
+                    if(savedOpp.Id != null) {
+                        leadOppMap.put(leadId, savedOpp.Id);
+                    }
+                }
+            } catch (Exception e) { 
+                System.debug('### Opportunity error: ' + e.getMessage()); 
+            }
+        }
+        
+        if (!leadAccountMap.isEmpty()) {
+            for (Policy_Information__c rec : [SELECT Id, Lead__c FROM Policy_Information__c WHERE Lead__c IN :leadAccountMap.keySet()]) {
+                if(leadAccountMap.containsKey(rec.Lead__c)) {
+                    rec.Account__c = leadAccountMap.get(rec.Lead__c); // Link to Account
+                    
+                    if(leadOppMap.containsKey(rec.Lead__c)) {
+                        rec.Opportunity__c = leadOppMap.get(rec.Lead__c); // Link to Opportunity
+                    }
+                    policyInfosToUpdate.add(rec);
+                }
+            }
+        }
+
+        // 2. UPDATE POLICY INFORMATION
+        if (!policyInfosToUpdate.isEmpty()) { 
+            try { 
+                update policyInfosToUpdate; 
+            } catch (Exception e) { 
+                System.debug('### Error moving Policy Info: ' + e.getMessage()); 
+            } 
+        }
+
+        // 3. TRANSFER FILES TO OPPORTUNITY
+        if (!leadToOppMapForFiles.isEmpty()) {
+            List<ContentDocumentLink> newFileLinks = new List<ContentDocumentLink>();
+            
+            for (ContentDocumentLink cdl : [SELECT ContentDocumentId, LinkedEntityId, ShareType, Visibility 
+                                            FROM ContentDocumentLink 
+                                            WHERE LinkedEntityId IN :leadToOppMapForFiles.keySet()]) {
+                                                
+                Opportunity relatedOpp = leadToOppMapForFiles.get(cdl.LinkedEntityId);
+                
+                if (relatedOpp != null && relatedOpp.Id != null) {
+                    ContentDocumentLink newCdl = new ContentDocumentLink();
+                    newCdl.ContentDocumentId = cdl.ContentDocumentId;
+                    newCdl.LinkedEntityId = relatedOpp.Id; 
+                    newCdl.ShareType = cdl.ShareType;
+                    newCdl.Visibility = cdl.Visibility;
+                    newFileLinks.add(newCdl);
+                }
+            }
+            
+            if (!newFileLinks.isEmpty()) {
+                try {
+                    // 'false' allows it to gracefully succeed even if Salesforce auto-moved some files
+                    Database.insert(newFileLinks, false);
+                    System.debug('### Files Transferred to Opportunity Successfully');
+                } catch (Exception e) {
+                    System.debug('### Error transferring files: ' + e.getMessage());
+               
+    }
+}
         }
     }
 }

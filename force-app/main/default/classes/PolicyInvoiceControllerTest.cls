@@ -147,5 +147,7 @@ private class PolicyInvoiceControllerTest {
         controller.getSecondInsuredName();
         controller.getPropertyAddress();
         controller.getInsuredName();
+         controller.getPolicyNumber();
+         controller.getAdditionalComments();
     }
 }

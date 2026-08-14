@@ -245,33 +245,41 @@ public with sharing class AccountDashboardController {
     }
     
     @AuraEnabled(cacheable=true)
-    public static List<ContentNote> getNotes(Id accountId) {
-        if (accountId == null) {
-            return new List<ContentNote>();
-        }
+    public static List<Map<String, Object>> getNotes(Id accountId) {
+        if (accountId == null) return new List<Map<String, Object>>();
         
         Set<Id> noteDocumentIds = new Set<Id>();
-        
-        for (ContentDocumentLink cdl : [
-            SELECT ContentDocumentId
-            FROM ContentDocumentLink
-            WHERE LinkedEntityId = :accountId
-            AND ContentDocument.FileType = 'SNOTE'
-        ]) {
+        for (ContentDocumentLink cdl : [SELECT ContentDocumentId FROM ContentDocumentLink WHERE LinkedEntityId = :accountId AND ContentDocument.FileType = 'SNOTE']) {
             noteDocumentIds.add(cdl.ContentDocumentId);
         }
         
-        if (noteDocumentIds.isEmpty()) {
-            return new List<ContentNote>();
-        }
+        if (noteDocumentIds.isEmpty()) return new List<Map<String, Object>>();
         
-        return [
-            SELECT Id, Title, TextPreview, CreatedDate, CreatedBy.Name
-            FROM ContentNote
-            WHERE Id IN :noteDocumentIds
-            ORDER BY CreatedDate DESC
-            LIMIT 50
-        ];
+        List<Map<String, Object>> result = new List<Map<String, Object>>();
+        for (ContentNote cn : [SELECT Id, Title, TextPreview, CreatedDate, CreatedBy.Name, Content FROM ContentNote WHERE Id IN :noteDocumentIds ORDER BY CreatedDate DESC LIMIT 50]) {
+            Map<String, Object> noteMap = new Map<String, Object>();
+            noteMap.put('Id', cn.Id);
+            noteMap.put('Title', cn.Title);
+            noteMap.put('TextPreview', cn.TextPreview);
+            noteMap.put('CreatedDate', cn.CreatedDate);
+            noteMap.put('CreatedBy', new Map<String, Object>{'Name' => cn.CreatedBy.Name});
+            
+            // Decode the Blob to pure HTML String
+            String htmlContent = '';
+            if (cn.Content != null) {
+                try {
+                    htmlContent = cn.Content.toString();
+                    if (htmlContent.contains('&lt;')) {
+                        htmlContent = htmlContent.unescapeHtml4();
+                    }
+                } catch(Exception e) {
+                    htmlContent = 'Error loading note.';
+                }
+            }
+            noteMap.put('Content', htmlContent);
+            result.add(noteMap);
+        }
+        return result;
     }
     
     
@@ -457,7 +465,7 @@ public with sharing class AccountDashboardController {
         // 3. Update Note
         note.Title = title;
         if (String.isNotBlank(newBody)) {
-            note.Content = Blob.valueOf(newBody.escapeXml());
+            note.Content = Blob.valueOf(newBody);
         } else {
              note.Content = Blob.valueOf('');
         }
@@ -479,30 +487,48 @@ public with sharing class AccountDashboardController {
         }
     }
  
-   @AuraEnabled
-public static void updateFileDetails(List<Id> documentIds, String description, String fileType) {
-    if (documentIds == null || documentIds.isEmpty()) return;
+    @AuraEnabled
+    public static void updateFileDetails(List<Id> documentIds, String description, String fileType, Map<String, String> fileNames, String lob) {
+        if (documentIds == null || documentIds.isEmpty()) return;
 
-    // 1) Update ContentDocument.Description
-    if (String.isNotBlank(description)) {
+        // 1) Update ContentDocument Name and Description
         List<ContentDocument> docsToUpdate = new List<ContentDocument>();
         for (Id docId : documentIds) {
-            docsToUpdate.add(new ContentDocument(Id = docId, Description = description));
+            ContentDocument cd = new ContentDocument(Id = docId);
+            Boolean hasUpdate = false;
+            
+            if (String.isNotBlank(description)) {
+                cd.Description = description;
+                hasUpdate = true;
+            }
+            
+            if (fileNames != null && fileNames.containsKey(String.valueOf(docId))) {
+                String newName = fileNames.get(String.valueOf(docId));
+                if (String.isNotBlank(newName)) {
+                    cd.Title = newName;
+                    hasUpdate = true;
+                }
+            }
+            
+            if (hasUpdate) {
+                docsToUpdate.add(cd);
+            }
         }
-        try {
-            update docsToUpdate;
-        } catch (Exception e) {
-            throw new AuraHandledException('Error updating description: ' + e.getMessage());
+        
+        if (!docsToUpdate.isEmpty()) {
+            try {
+                update docsToUpdate;
+            } catch (Exception e) {
+                throw new AuraHandledException('Error updating file details: ' + e.getMessage());
+            }
         }
-    }
 
-    // 2) Update ContentVersion.Type__c only if field exists + is updateable
-    if (String.isNotBlank(fileType)) {
+    // 2) Update ContentVersion.Type__c and LOB__c if field exists + is updateable
+    if (String.isNotBlank(fileType) || String.isNotBlank(lob)) {
         Map<String, Schema.SObjectField> cvFields = Schema.SObjectType.ContentVersion.fields.getMap();
 
-        if (!cvFields.containsKey('Type__c') || !cvFields.get('Type__c').getDescribe().isUpdateable()) {
-            // Skip safely (prevents failures in orgs where field doesn't exist or isn't writable)
-            return;
+        if (String.isNotBlank(fileType) && (!cvFields.containsKey('Type__c') || !cvFields.get('Type__c').getDescribe().isUpdateable())) {
+            // Skip Type__c safely (prevents failures in orgs where field doesn't exist or isn't writable)
         }
 
         List<ContentVersion> versionsToUpdate = [
@@ -513,7 +539,12 @@ public static void updateFileDetails(List<Id> documentIds, String description, S
         ];
 
         for (ContentVersion cv : versionsToUpdate) {
-            cv.put('Type__c', fileType);
+            if (String.isNotBlank(fileType)) {
+                cv.put('Type__c', fileType);
+            }
+            if (String.isNotBlank(lob) && cvFields.containsKey('LOB__c') && cvFields.get('LOB__c').getDescribe().isUpdateable()) {
+                cv.put('LOB__c', lob);
+            }
         }
 
         if (!versionsToUpdate.isEmpty()) {
@@ -568,4 +599,10 @@ public static void updateFileDetails(List<Id> documentIds, String description, S
         ];
         return count > 0;
     }
+    
+   @AuraEnabled(cacheable=true)
+    public static Boolean isCurrentUserAdmin() {
+        Profile p = [SELECT Name FROM Profile WHERE Id = :UserInfo.getProfileId() LIMIT 1];
+        return p.Name == 'System Administrator';
+    } 
 }

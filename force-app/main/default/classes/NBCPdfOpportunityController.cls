@@ -56,7 +56,7 @@ public with sharing class NBCPdfOpportunityController {
         }
 
         w.policies = [
-            SELECT Carrier__c, Lines__c, Policy__c,
+            SELECT Carrier__c, Lines__c, Policy__c, Agency_Fee__c,
                    Premium__c, Effective_Date__c
             FROM Policy_Information__c
             WHERE Opportunity__c = :opportunityId

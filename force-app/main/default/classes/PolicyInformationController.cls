@@ -40,7 +40,10 @@ public with sharing class PolicyInformationController {
         ];
         
         w.policyInformationList = [
-            SELECT Id, Carrier__c, Lines__c, Policy__c, Premium__c, Effective_Date__c, Generate_Invoice__c, Email_Invoice__c, Paid_To_Date__c, Additional_Comments__c, Selected_Address__c
+            SELECT Id, Carrier__c, Lines__c, Policy__c, Premium__c, Agency_Fee__c,
+                   Agency_Fee_Waiver_Request__c, Agency_Fee_Waiver_Decision__c,
+                   Effective_Date__c, Generate_Invoice__c, Email_Invoice__c, 
+                   Paid_To_Date__c, Additional_Comments__c, Selected_Address__c, Date_Bound__c
             FROM Policy_Information__c
             WHERE Lead__c = :leadId
             AND (
@@ -77,7 +80,7 @@ public with sharing class PolicyInformationController {
     }
     
     @AuraEnabled
-    public static void saveLeadNBC(Lead lead, List<Policy_Information__c> policies, String selectedAddress) {
+    public static void saveLeadNBC(Lead lead, List<Policy_Information__c> policies, String selectedAddress, Map<String, String> invoiceTypes) {
         try {
             String street, city, state, postalCode, country;
 
@@ -111,7 +114,7 @@ public with sharing class PolicyInformationController {
             lead.NBC_Address__PostalCode__s = postalCode;
             lead.NBC_Address__CountryCode__s = country; 
             
-  			lead.Agent_1__c = fullLead.OwnerId;
+            lead.Agent_1__c = fullLead.OwnerId;
             lead.Is_NBC__c = true;
             AMSHelperClass.AMSWrapper AMSDetailWrapper =
             AMSHelperClass.getAMSBusinesUnit(
@@ -119,13 +122,32 @@ public with sharing class PolicyInformationController {
                 fullLead.Partner_Name__c,
                 fullLead.ownerId
             );
-            lead.vert__AMS360_Branch__c=AMSDetailWrapper.BranchId;
-            lead.vert__AMS360_Division__c=AMSDetailWrapper.DivId;
-            lead.vert__AMS360_Department__c=AMSDetailWrapper.DeptId;
-            lead.vert__AMS360_Group__c=AMSDetailWrapper.groupId;
-            lead.vert__AMS360_Employee_Account_Exec__c=AMSDetailWrapper.excutiveId;
+            
+            if (AMSDetailWrapper != null) {
+                lead.vert__AMS360_Branch__c=AMSDetailWrapper.BranchId;
+                lead.vert__AMS360_Division__c=AMSDetailWrapper.DivId;
+                lead.vert__AMS360_Department__c=AMSDetailWrapper.DeptId;
+                lead.vert__AMS360_Group__c=AMSDetailWrapper.groupId;
+                lead.vert__AMS360_Employee_Account_Exec__c=AMSDetailWrapper.excutiveId;
+            }
             
             update lead;
+            
+            // --- NEW LOGIC: Query existing policies to protect Date_Bound__c ---
+            Set<Id> existingPolicyIds = new Set<Id>();
+            for (Policy_Information__c p : policies) {
+                if (p.Id != null) existingPolicyIds.add(p.Id);
+            }
+            
+            Map<Id, Policy_Information__c> dbPoliciesMap = new Map<Id, Policy_Information__c>();
+            if (!existingPolicyIds.isEmpty()) {
+                dbPoliciesMap = new Map<Id, Policy_Information__c>([
+                    SELECT Id, Policy_Type__c, Agent_1__c, Agent_2__c, Date_Bound__c 
+                    FROM Policy_Information__c 
+                    WHERE Id IN :existingPolicyIds
+                ]);
+            }
+            // -------------------------------------------------------------------
             
             List<Policy_Information__c> toInsert = new List<Policy_Information__c>();
             List<Policy_Information__c> toUpdate = new List<Policy_Information__c>();
@@ -136,29 +158,55 @@ public with sharing class PolicyInformationController {
                 p.Address__StateCode__s = state; 
                 p.Address__PostalCode__s = postalCode;
                 p.Address__CountryCode__s = country;
+                p.Lead__c = lead.Id;
                 
                 if (p.Id == null) { 
                     p.Agent_1__c = fullLead.OwnerId; 
                     p.Agent_2__c = lead.Agent_2__c;  
                     p.Date_Bound__c = lead.Date_Bound__c; 
-                }
-
-                p.Lead__c = lead.Id;
-                if (p.Id == null) {
                     p.Policy_Type__c = 'NBC';
+                    p.Final_Agency_Fee__c = (p.Agency_Fee__c != null) ? p.Agency_Fee__c : 0;
                     toInsert.add(p);
                 } else {
+                    Policy_Information__c dbPol = dbPoliciesMap.get(p.Id);
+                    
+                    if (dbPol != null && dbPol.Policy_Type__c != 'NBC') {
+                        p.Policy_Type__c = 'NBC';
+                        p.Agent_1__c = (dbPol.Agent_1__c != null) ? dbPol.Agent_1__c : fullLead.OwnerId;
+                        p.Agent_2__c = (dbPol.Agent_2__c != null) ? dbPol.Agent_2__c : lead.Agent_2__c;
+                        p.Date_Bound__c = (dbPol.Date_Bound__c != null) ? dbPol.Date_Bound__c : lead.Date_Bound__c;
+                        p.Final_Agency_Fee__c = (p.Agency_Fee__c != null) ? p.Agency_Fee__c : 0;
+                    } else if (dbPol != null && dbPol.Policy_Type__c == 'NBC') {
+                        p.Date_Bound__c = dbPol.Date_Bound__c;
+                    }
+                    
                     toUpdate.add(p);
                 }
             }
             
             if (!toInsert.isEmpty()) insert toInsert;
             if (!toUpdate.isEmpty()) update toUpdate;
+
+            // Trigger Invoices
+            Map<String, List<Id>> policyGroups = new Map<String, List<Id>>();
+            for (Integer i = 0; i < policies.size(); i++) {
+                Policy_Information__c p = policies[i];
+                if (p.Generate_Invoice__c == true) {
+                    String type = (invoiceTypes != null && invoiceTypes.containsKey(String.valueOf(i))) ? invoiceTypes.get(String.valueOf(i)) : 'Direct Bill';
+                    if (!policyGroups.containsKey(type)) policyGroups.put(type, new List<Id>());
+                    policyGroups.get(type).add(p.Id);
+                }
+            }
+
+            for (String type : policyGroups.keySet()) {
+                System.enqueueJob(new GeneratePolicyInvoiceJob(lead.Id, policyGroups.get(type), lead.Id, type));
+            }
             
         } catch (Exception e) {
             throw new AuraHandledException('Error saving Lead/Policies: ' + e.getMessage());
         }
-    }    
+    }
+    
     
     @AuraEnabled
     public static String getPdfUrl(Id leadId) {
@@ -191,10 +239,11 @@ public with sharing class PolicyInformationController {
             cv.Title = 'NBC Checklist - ' + leadRec.Name;
             cv.PathOnClient = 'NBC_Checklist.pdf';
             cv.VersionData = pdfBlob;
-            cv.FirstPublishLocationId = leadId; 
+            cv.FirstPublishLocationId = leadId;
+            cv.Type__c = 'New Business Checklist';
             insert cv;
             
-            generatePolicyInvoicesFuture(leadId);
+            // Removed generatePolicyInvoicesFuture(leadId); to avoid duplicates as saveLeadNBC now handles it.
             
             return 'NBC PDF saved. Policy invoices will be generated shortly.';
             
@@ -212,9 +261,15 @@ public with sharing class PolicyInformationController {
                 ORDER BY CreatedDate ASC
             ];
 
+            if (policies.isEmpty()) return;
+
+            // Collect all IDs and enqueue ONE consolidated invoice job
+            List<Id> allPolicyIds = new List<Id>();
             for (Policy_Information__c p : policies) {
-                System.enqueueJob(new GeneratePolicyInvoiceJob(leadId, p.Id, leadId));
+                allPolicyIds.add(p.Id);
             }
+            System.enqueueJob(new GeneratePolicyInvoiceJob(leadId, allPolicyIds, leadId));
+
         } catch (Exception e) {
             System.debug('Error enqueueing jobs: ' + e.getMessage());
             throw new AuraHandledException('Error: ' + e.getMessage());
@@ -267,7 +322,7 @@ public with sharing class PolicyInformationController {
     }
 
     @AuraEnabled
-    public static void saveSinglePolicyAndInvoice(Id recordId, String sObjectType, Policy_Information__c policy, Boolean isManualEntry) {
+    public static void saveSinglePolicyAndInvoice(Id recordId, String sObjectType, Policy_Information__c policy, Boolean isManualEntry, String invoiceType) {
         
         Id policyIdToInvoice;
         Id leadIdForJob; 
@@ -363,7 +418,7 @@ public with sharing class PolicyInformationController {
         }
         
         try {
-            System.enqueueJob(new GeneratePolicyInvoiceJob(leadIdForJob, policyIdToInvoice, recordId));
+            System.enqueueJob(new GeneratePolicyInvoiceJob(leadIdForJob, policyIdToInvoice, recordId, invoiceType));
         } catch (Exception e) {
             throw new AuraHandledException('Failed to enqueue invoice job: ' + e.getMessage());
         }
@@ -523,5 +578,54 @@ public with sharing class PolicyInformationController {
             ));
         }
         return mappedPolicies;
+    }
+    
+    public class PolicyCheckValidation {
+        @AuraEnabled public Boolean allowNBC { get; set; }
+        @AuraEnabled public Integer maxPolicies { get; set; }
+        @AuraEnabled public String errorMessage { get; set; }
+    }
+
+    @AuraEnabled(cacheable=true)
+    public static PolicyCheckValidation getPolicyCheckValidation(Id leadId) {
+        PolicyCheckValidation result = new PolicyCheckValidation();
+        result.allowNBC = true;
+        result.maxPolicies = 0;
+        result.errorMessage = '';
+
+        // Query all related Policy Checks (Quotes) for this Lead
+        List<Policy_Information__c> quotes = [
+            SELECT Id, Policy_Status__c 
+            FROM Policy_Information__c 
+            WHERE Lead__c = :leadId 
+            AND Policy_Type__c = 'Quote'
+        ];
+
+        Integer submittedCount = 0;
+        Integer approvedCount = 0;
+
+        // Tally up the statuses
+        for (Policy_Information__c quote : quotes) {
+            if (quote.Policy_Status__c == 'Submitted') {
+                submittedCount++;
+            } else if (quote.Policy_Status__c == 'Approved') {
+                approvedCount++;
+            }
+        }
+
+        // Apply Gatekeeper Rules
+        if (submittedCount > 0) {
+            result.allowNBC = false;
+            result.errorMessage = 'Cannot create NBC: A Policy Check approval is required to create an NBC.';
+        } else if (approvedCount == 0) {
+            result.allowNBC = false;
+            result.errorMessage = 'Cannot create NBC:  A Policy Check approval is required to create an NBC.';
+        } else {
+            // Passed validation! Set the limit.
+            result.allowNBC = true;
+            result.maxPolicies = approvedCount;
+        }
+
+        return result;
     }
 }

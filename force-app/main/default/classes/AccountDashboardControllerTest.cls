@@ -283,6 +283,8 @@ public class AccountDashboardControllerTest {
             AccountDashboardController.updateFileDetails(
                 new List<Id>{cv.ContentDocumentId},
                 'Updated Description',
+                null,
+                new Map<String, String>(),
                 null
             );
 
@@ -290,12 +292,14 @@ public class AccountDashboardControllerTest {
                 AccountDashboardController.updateFileDetails(
                     new List<Id>{cv.ContentDocumentId},
                     null,
-                    validType
+                    validType,
+                    null,
+                    null
                 );
             }
 
-            AccountDashboardController.updateFileDetails(new List<Id>(), 'Desc', 'Type');
-            AccountDashboardController.updateFileDetails(null, 'Desc', 'Type');
+            AccountDashboardController.updateFileDetails(new List<Id>(), 'Desc', 'Type' , null, null);
+            AccountDashboardController.updateFileDetails(null, 'Desc', 'Type' , null, null);
         } finally {
             Test.stopTest();
         }

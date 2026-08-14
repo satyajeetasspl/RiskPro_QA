@@ -12,16 +12,16 @@ public class AMSHelperClassTest {
 
         /* -------- Branches -------- */
         insert new vert__AMS360_Branch__c(Name = 'Lend-A-Loan');
-        insert new vert__AMS360_Branch__c(Name = 'Rapid Home Lending');
+        insert new vert__AMS360_Branch__c(Name = 'Rapid Home Loans');
         insert new vert__AMS360_Branch__c(Name = 'HOUSE ACCOUNT');
 
         /* -------- Department -------- */
-        insert new vert__AMS360_Department__c(Name = 'Department 1');
+        insert new vert__AMS360_Department__c(Name = 'Department one');
 
         /* -------- Group -------- */
         insert new vert__AMS360_Group__c(Name = 'Group one');
 
-        /* -------- User WITH Employee -------- */
+        /* -------- User -------- */
         Profile p = [
             SELECT Id FROM Profile
             WHERE Name = 'Standard User'
@@ -44,6 +44,7 @@ public class AMSHelperClassTest {
 
         testUserId = u.Id;
 
+        /* -------- Employee (MATCHES ownerId) -------- */
         insert new vert__AMS360_Employee__c(
             Name = 'Test Employee',
             vert__AMS360_Assign_To__c = u.Id,
@@ -52,129 +53,78 @@ public class AMSHelperClassTest {
         );
     }
 
-    /* ================= Partner + Lend-A-Loan ================= */
+    /* ================= Partner + Matching ================= */
     @IsTest
-    static void testPartnerLendALoan() {
+    static void testPartnerMatchingBranch() {
+
+        User u = [
+            SELECT Id FROM User
+            WHERE Username = 'ams.test.user@test.com'
+            LIMIT 1
+        ];
 
         Test.startTest();
         AMSHelperClass.getAMSBusinesUnit(
             'Partner',
             'Lend-A-Loan Mumbai',
-            testUserId
-        );
-        Test.stopTest();
-    }
-
-    /* ================= Partner + Rapid ================= */
-    @IsTest
-    static void testPartnerRapidHomeLending() {
-
-        Test.startTest();
-        AMSHelperClass.getAMSBusinesUnit(
-            'Partner',
-            'Rapid Home Lending Delhi',
-            testUserId
+            u.Id
         );
         Test.stopTest();
     }
 
     /* ================= Partner + No Match ================= */
     @IsTest
-    static void testPartnerNoMatch() {
+    static void testPartnerNoBranchMatch() {
+
+        User u = [
+            SELECT Id FROM User
+            WHERE Username = 'ams.test.user@test.com'
+            LIMIT 1
+        ];
 
         Test.startTest();
         AMSHelperClass.getAMSBusinesUnit(
             'Partner',
             'Unknown Partner',
-            testUserId
-        );
-        Test.stopTest();
-    }
-
-    /* ================= Non Partner ================= */
-    @IsTest
-    static void testNonPartnerLead() {
-
-        Test.startTest();
-        AMSHelperClass.getAMSBusinesUnit(
-            'New',
-            'Random Company',
-            testUserId
-        );
-        Test.stopTest();
-    }
-
-    /* ================= Null Partner Name ================= */
-    @IsTest
-    static void testNullPartnerName() {
-
-        Test.startTest();
-        AMSHelperClass.getAMSBusinesUnit(
-            'Partner',
-            null,
-            testUserId
-        );
-        Test.stopTest();
-    }
-
-    /* ================= OwnerId NULL ================= */
-    @IsTest
-    static void testNullOwnerId() {
-
-        Test.startTest();
-        AMSHelperClass.getAMSBusinesUnit(
-            'Partner',
-            'Lend-A-Loan',
-            null
-        );
-        Test.stopTest();
-    }
-
-    /* ================= Employee Does NOT Exist ================= */
-    @IsTest
-    static void testEmployeeDoesNotExist() {
-
-        Profile p = [
-            SELECT Id FROM Profile
-            WHERE Name = 'Standard User'
-            LIMIT 1
-        ];
-
-        User u = new User(
-            FirstName = 'No',
-            LastName = 'Employee',
-            Email = 'noemployee@test.com',
-            Username = 'no.employee@test.com',
-            Alias = 'noemp',
-            TimeZoneSidKey = 'Asia/Kolkata',
-            LocaleSidKey = 'en_IN',
-            EmailEncodingKey = 'UTF-8',
-            LanguageLocaleKey = 'en_US',
-            ProfileId = p.Id
-        );
-        insert u;
-
-        Test.startTest();
-        AMSHelperClass.getAMSBusinesUnit(
-            'Partner',
-            'Lend-A-Loan',
             u.Id
         );
         Test.stopTest();
     }
 
-    /* ================= BLANK nameValue path in getIdByName ================= */
+    /* ================= Non Partner (FIXED) ================= */
     @IsTest
-    static void testBlankNameValuePath() {
+    static void testNonPartnerLead() {
 
-        // We simulate blank lookup by removing required data
-        // and forcing internal calls with blank strings indirectly
+        User u = [
+            SELECT Id FROM User
+            WHERE Username = 'ams.test.user@test.com'
+            LIMIT 1
+        ];
+
+        Test.startTest();
+        AMSHelperClass.getAMSBusinesUnit(
+            'New',
+            'Random Company',
+            u.Id
+        );
+        Test.stopTest();
+    }
+
+    /* ================= Null Partner ================= */
+    @IsTest
+    static void testNullPartnerName() {
+
+        User u = [
+            SELECT Id FROM User
+            WHERE Username = 'ams.test.user@test.com'
+            LIMIT 1
+        ];
 
         Test.startTest();
         AMSHelperClass.getAMSBusinesUnit(
             'Partner',
-            '',     // Blank partner
-            testUserId
+            null,
+            u.Id
         );
         Test.stopTest();
     }

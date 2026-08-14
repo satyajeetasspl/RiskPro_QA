@@ -109,19 +109,16 @@ public class AMSHelperClass {
     }
     
     private static Id getEmployeeID(String ownerId) {
-
     if (String.isBlank(ownerId)) {
         return null;
     }
-
-    List<vert__AMS360_Employee__c> empList = [
+    List<vert__AMS360_Employee__c> employees = [
         SELECT Id
         FROM vert__AMS360_Employee__c
         WHERE vert__AMS360_Assign_To__c = :ownerId
         LIMIT 1
     ];
-
-    return empList.isEmpty() ? null : empList[0].Id;
+    return employees.isEmpty() ? null : employees[0].Id;
 }
 
     

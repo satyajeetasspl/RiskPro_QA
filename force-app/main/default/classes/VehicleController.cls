@@ -13,7 +13,7 @@ public with sharing class VehicleController {
     @AuraEnabled(cacheable=true)
     public static List<Vehicle__c> getVehicles(Id recordId) {
         List<Vehicle__c> vehicles = [
-            SELECT Name, Vehicle_Type__c, VIN__c, Year__c, Make__c, Model__c,
+            SELECT Name, Vehicle_Type__c, VIN__c, Year__c,Purchase_Year__c, Make__c, Model__c,
                 Lienholder__c, Annual_Miles__c,
                 Registered_To__c, Registered_To__r.Name
             FROM Vehicle__c

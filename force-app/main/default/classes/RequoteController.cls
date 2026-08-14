@@ -28,10 +28,11 @@ public class RequoteController {
                 }
             }
 
-
+            // --- 2. ASSIGN IDS TO EVENT ---
+            // Rule: You cannot link a Lead (WhoId) and an Opportunity (WhatId) at the same time.
             if (validWhoId != null && validWhoId.getSObjectType() == Lead.SObjectType) {
                 ev.WhoId = validWhoId;
-                ev.WhatId = null; 
+                ev.WhatId = null; // Explicitly ensure WhatId is null
             } else {
                 //ev.WhoId = validWhoId;
                 ev.WhatId = validWhatId;

@@ -1,3 +1,6 @@
+/**
+ * An apex page controller that supports self registration of users in communities that allow self registration
+ */
 public class CommunitiesSelfRegController {
 
     public String firstName {get; set;}
@@ -20,7 +23,7 @@ public class CommunitiesSelfRegController {
 
     public PageReference registerUser() {
     
-        // it's okay if password is null - we'll send the user a random password in that case
+           // it's okay if password is null - we'll send the user a random password in that case
         if (!isValidPassword()) {
             ApexPages.Message msg = new ApexPages.Message(ApexPages.Severity.ERROR, Label.site.passwords_dont_match);
             ApexPages.addMessage(msg);
@@ -39,30 +42,14 @@ public class CommunitiesSelfRegController {
         u.FirstName = firstName;
         u.LastName = lastName;
         u.CommunityNickname = communityNickname;
-        u.ProfileId = profileId;
-        
+		u.ProfileId = profileId;
+		
         String userId;
 
         try {
             userId = Site.createExternalUser(u, accountId, password);
-            
-            // --- ADDED FOR TEST COVERAGE ---
-            if (Test.isRunningTest()) {
-                Integer forceException = 1 / 0; // Force a MathException to guarantee we enter the catch block
-            }
-            // -------------------------------
-            
-        } catch(Exception ex) { // Broadened to catch all exceptions
-            
-            // Create a brand new list so we don't crash from modifying a read-only list
-            List<String> errors = new List<String>();
-            
-            if (ex instanceof Site.ExternalUserCreateException) {
-                errors.addAll(((Site.ExternalUserCreateException)ex).getDisplayMessages());
-            } else if (Test.isRunningTest()) {
-                errors.add('Forced test error to cover the loop');
-            }
-            
+        } catch(Site.ExternalUserCreateException ex) {
+            List<String> errors = ex.getDisplayMessages();
             for (String error : errors)  {
                 ApexPages.addMessage(new ApexPages.Message(ApexPages.Severity.ERROR, error));
             }
@@ -70,10 +57,6 @@ public class CommunitiesSelfRegController {
             // This message is used for debugging. Do not display this in the UI to the end user.
             // It has the information around why the user creation failed.
             System.debug(ex.getMessage());
-        }
-        
-        if (Test.isRunningTest()) {
-            userId = '005000000000000'; // Inject a fake User ID to force the success path
         }
         
         if (userId != null) { 
